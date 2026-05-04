@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Main runner: loads saved results for all levels and prints metrics.
+Main runner: loads cached results for all levels and prints metrics.
 
 Usage:
-    python run_all.py              # load saved results (no API calls)
-    python run_all.py --rerun      # re-run all levels via the API
-    python run_all.py --levels 2 3 # load/run only specific levels
+    - python main.py              # load saved results (no API calls)
+    - python main.py --rerun      # re-run all levels via the API
+    - python main.py --levels 2 3 # load/run specific levels
 """
 
 import os
