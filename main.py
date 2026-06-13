@@ -172,9 +172,31 @@ def level3_from_results(rerun: bool) -> tuple | None:
     return display_level3(data)
 
 
+def benchmark_from_results(rerun: bool):
+    """RoBERTa vs GPT-3.5 vs LLM-judge benchmark on held-out SciFact dev."""
+    if rerun:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ROOT / "FActScore")
+        env["PYTHONIOENCODING"] = "utf-8"
+        rc = subprocess.run([sys.executable, "benchmark.py"], cwd=str(ROOT), env=env).returncode
+        if rc != 0:
+            print(f"  [!] benchmark exited with code {rc}")
+            return
+    metrics = _load_json(RESULTS_DIR / "benchmark_metrics.json")
+    if not metrics:
+        print("  [!] results/benchmark_metrics.json not found.")
+        print("      Run with --benchmark (and train RoBERTa) to generate it.")
+        return
+    print(f"\n  {'Backend':<28} {'Accuracy':>10} {'Macro F1':>10}")
+    print("  " + "-" * 50)
+    for name, m in sorted(metrics.items(), key=lambda kv: kv[1]["macro_f1"], reverse=True):
+        print(f"  {name:<28} {m['accuracy']*100:>9.1f}% {m['macro_f1']:>10.3f}")
+    print("  " + "=" * 50)
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
-async def main(levels: list[int], rerun: bool):
+async def main(levels: list[int], rerun: bool, benchmark: bool):
     summary_rows: list[tuple[str, list, list]] = []
 
     if 1 in levels:
@@ -207,6 +229,10 @@ async def main(levels: list[int], rerun: bool):
     if summary_rows:
         print_summary(summary_rows)
 
+    if benchmark:
+        _banner("BENCHMARK — RoBERTa vs prompted GPT-3.5 vs LLM-judge (SciFact dev)")
+        benchmark_from_results(rerun)
+
     print("Done.")
 
 
@@ -220,5 +246,10 @@ if __name__ == "__main__":
         "--levels", nargs="+", type=int, default=[1, 2, 3],
         metavar="N", help="Which levels to run (default: 1 2 3).",
     )
+    parser.add_argument(
+        "--benchmark", action="store_true",
+        help="Also show the RoBERTa vs GPT-3.5 vs LLM-judge benchmark "
+             "(use with --rerun to recompute it via benchmark.py).",
+    )
     args = parser.parse_args()
-    asyncio.run(main(levels=args.levels, rerun=args.rerun))
+    asyncio.run(main(levels=args.levels, rerun=args.rerun, benchmark=args.benchmark))

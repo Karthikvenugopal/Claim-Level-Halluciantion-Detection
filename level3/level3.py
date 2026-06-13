@@ -12,7 +12,7 @@ from factscore_runner import FActScoreRunner
 from uqlm_runner import UQLMRunner
 from nli_runner import NLIRunner
 from display_results import DisplayResults
-from tinyllama_runner import TinyLlamaNLIRunner
+from roberta_runner import RobertaNLIRunner
 from classifier_runner import Classifier
 from dotenv import load_dotenv
 
@@ -165,24 +165,26 @@ class Level3:
         display.evaluate_and_print(base_results)
         display.save_results(base_results)
 
-        # ── Phase 2: TinyLlama NLI ─────────────────────────────────────────────
-        _header("PHASE 2 — TinyLlama NLI Replacement")
-        tinyllama_nli_by_id = None
-        tinyllama_results   = None
-        if os.environ.get("TINYLLAMA_MODEL"):
-            runner           = TinyLlamaNLIRunner(corpus=self.corpus)
-            tinyllama_nli    = runner.run_nli(base_results)
-            tinyllama_nli_by_id = {r["id"]: r for r in tinyllama_nli}
-            tinyllama_results = self.simple_ensemble_verdicts(
-                factscore_results, uqlm_results, tinyllama_nli
+        # ── Phase 2: RoBERTa NLI ───────────────────────────────────────────────
+        _header("PHASE 2 — RoBERTa NLI Replacement")
+        roberta_nli_by_id = None
+        roberta_results   = None
+        roberta_path = ROOT / os.environ.get("ROBERTA_MODEL", "level3/finetuned_roberta")
+        if roberta_path.exists():
+            runner            = RobertaNLIRunner(corpus=self.corpus, retriever=self.retriever)
+            roberta_nli       = runner.run_nli(base_results)
+            roberta_nli_by_id = {r["id"]: r for r in roberta_nli}
+            roberta_results = self.simple_ensemble_verdicts(
+                factscore_results, uqlm_results, roberta_nli
             )
-            display.evaluate_and_print(tinyllama_results)
+            display.evaluate_and_print(roberta_results)
             _save_json(
-                tinyllama_results,
-                ROOT / os.environ.get("RESULTS_DIR") / "level3_tinyllama_results.json",
+                roberta_results,
+                ROOT / os.environ.get("RESULTS_DIR") / "level3_roberta_results.json",
             )
         else:
-            print("  TINYLLAMA_MODEL not set in .env — skipping Phase 2")
+            print(f"  Fine-tuned RoBERTa not found at {roberta_path} — skipping Phase 2.")
+            print("  Train it first:  python finetuning/roberta_nli_finetune.py")
 
         # ── Phase 3: Score Classifier ──────────────────────────────────────────
         _header("PHASE 3 — Score Classifier")
@@ -194,19 +196,19 @@ class Level3:
         clf_preds_no_nli = [r["classifier_verdict"] for r in clf_records_no_nli]
 
         clf_preds_with_nli = None
-        if tinyllama_nli_by_id:
+        if roberta_nli_by_id:
             clf_records_with_nli = copy.deepcopy(base_results)
-            clf.run(clf_records_with_nli, nli_by_id=tinyllama_nli_by_id)
-            clf.print_report("Classifier — FActScore + UQLM + TinyLlama NLI features", clf_records_with_nli)
+            clf.run(clf_records_with_nli, nli_by_id=roberta_nli_by_id)
+            clf.print_report("Classifier — FActScore + UQLM + RoBERTa NLI features", clf_records_with_nli)
             clf_preds_with_nli = [r["classifier_verdict"] for r in clf_records_with_nli]
             clf.save_results(clf_records_with_nli)
         else:
             clf.save_results(clf_records_no_nli)
 
         # ── Final comparison ───────────────────────────────────────────────────
-        self._print_final_summary(base_results, tinyllama_results, clf_preds_no_nli, clf_preds_with_nli)
+        self._print_final_summary(base_results, roberta_results, clf_preds_no_nli, clf_preds_with_nli)
 
-    def _print_final_summary(self, base_results, tinyllama_results, clf_preds_no_nli, clf_preds_with_nli):
+    def _print_final_summary(self, base_results, roberta_results, clf_preds_no_nli, clf_preds_with_nli):
         from sklearn.metrics import f1_score, accuracy_score as acc_fn
 
         gt   = [r["ground_truth"] for r in base_results]
@@ -226,16 +228,16 @@ class Level3:
         row("UQLM (base)",                   [r["uqlm_verdict"]     for r in base_results])
         row("GPT-4o-mini NLI (base)",        [r.get("nli_verdict")  for r in base_results])
         row("Ensemble — GPT NLI (Phase 1)",  [r["ensemble_verdict"] for r in base_results])
-        if tinyllama_results:
+        if roberta_results:
             print("  " + "-" * 64)
-            row("TinyLlama NLI (Phase 2)",        [r.get("nli_verdict")  for r in tinyllama_results])
-            row("Ensemble — TinyLlama (Phase 2)", [r["ensemble_verdict"] for r in tinyllama_results])
+            row("RoBERTa NLI (Phase 2)",        [r.get("nli_verdict")  for r in roberta_results])
+            row("Ensemble — RoBERTa (Phase 2)", [r["ensemble_verdict"] for r in roberta_results])
         if clf_preds_no_nli or clf_preds_with_nli:
             print("  " + "-" * 64)
         if clf_preds_no_nli:
             row("Classifier — no NLI (Phase 3)",     clf_preds_no_nli)
         if clf_preds_with_nli:
-            row("Classifier + TinyLlama (Phase 3)",  clf_preds_with_nli)
+            row("Classifier + RoBERTa (Phase 3)",  clf_preds_with_nli)
         print("  " + "=" * 64)
 
 
